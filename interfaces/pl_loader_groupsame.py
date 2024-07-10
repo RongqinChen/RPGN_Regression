@@ -117,6 +117,7 @@ class GroupSameDataLoader(torch.utils.data.DataLoader):
         batch_size: int = 1,
         shuffle: bool = False,
         drop_last: bool = False,
+        num_workers: int = 1,
         follow_batch: Optional[List[str]] = None,
         exclude_keys: Optional[List[str]] = None,
         **kwargs,
@@ -131,6 +132,7 @@ class GroupSameDataLoader(torch.utils.data.DataLoader):
         batch_sampler = BatchSampler(dataset, batch_size, shuffle, drop_last)
         super().__init__(
             dataset,
+            num_workers=num_workers,
             batch_sampler=batch_sampler,
             collate_fn=Collater(dataset, follow_batch, exclude_keys),
             **kwargs,

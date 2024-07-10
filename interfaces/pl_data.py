@@ -2,7 +2,7 @@
 Pytorch lightning data module for PyG dataset.
 """
 
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 from lightning.pytorch import LightningDataModule
 from torch_geometric.data import Dataset
 from torch.utils.data import DataLoader
@@ -30,37 +30,31 @@ class PlPyGDataModule(LightningDataModule):
         test_dataset: Dataset,
         batch_size: Optional[int] = 32,
         num_workers: Optional[int] = 0,
-        follow_batch: Optional[List[str]] = [],
         drop_last: Optional[bool] = False,
         fill2same: Optional[bool] = True,
     ):
-
         super(PlPyGDataModule, self).__init__()
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.test_dataset = test_dataset
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.follow_batch = follow_batch
         self.drop_last = drop_last
         if fill2same:
             max_num_nodes = max([data.num_nodes for data in train_dataset + val_dataset + test_dataset])
-            self.LoaderModule = lambda dataset, batch_size, shuffle, drop_last: \
-                Fill2SameDataLoader(dataset, max_num_nodes, batch_size, shuffle, drop_last)
+            self.LoaderModule = lambda dataset, batch_size, shuffle, drop_last, num_workers: \
+                Fill2SameDataLoader(dataset, max_num_nodes, batch_size, shuffle, drop_last, num_workers)
         else:
             self.LoaderModule = GroupSameDataLoader
 
     def train_dataloader(self) -> DataLoader:
-        return self.LoaderModule(self.train_dataset, self.batch_size, True, self.drop_last,
-                                 self.follow_batch, num_workers=self.num_workers)
+        return self.LoaderModule(self.train_dataset, self.batch_size, True, self.drop_last, self.num_workers)
 
     def val_dataloader(self) -> DataLoader:
-        return self.LoaderModule(self.val_dataset, self.batch_size, False, self.drop_last,
-                                 self.follow_batch, num_workers=self.num_workers)
+        return self.LoaderModule(self.val_dataset, self.batch_size, False, self.drop_last, self.num_workers)
 
     def test_dataloader(self) -> DataLoader:
-        return self.LoaderModule(self.test_dataset, self.batch_size, False, self.drop_last,
-                                 self.follow_batch, num_workers=self.num_workers)
+        return self.LoaderModule(self.test_dataset, self.batch_size, False, self.drop_last, self.num_workers)
 
 
 class PlPyGDataTestonValModule(PlPyGDataModule):
@@ -69,10 +63,8 @@ class PlPyGDataTestonValModule(PlPyGDataModule):
     """
 
     def val_dataloader(self) -> Tuple[DataLoader, DataLoader]:
-        return (DataLoader(self.val_dataset, self.batch_size, False, self.drop_last,
-                           self.follow_batch, num_workers=self.num_workers),
-                DataLoader(self.test_dataset, self.batch_size, False, self.drop_last,
-                           self.follow_batch, num_workers=self.num_workers))
+        return (self.LoaderModule(self.val_dataset, self.batch_size, False, self.drop_last, self.num_workers),
+                self.LoaderModule(self.test_dataset, self.batch_size, False, self.drop_last, self.num_workers))
 
     def test_dataloader(self) -> Tuple[DataLoader, DataLoader]:
         return self.val_dataloader()
