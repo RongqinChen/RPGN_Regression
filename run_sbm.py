@@ -127,7 +127,7 @@ class NodeEncoder(torch.nn.Module):
         # Encode just the first dimension if more exist
         batch_node_attr = batch["batch_node_attr"]
         B, N, _ = batch_node_attr.size()
-        node_h: Tensor = self.linear(batch_node_attr[:, :, 0].flatten())
+        node_h: Tensor = self.linear(batch_node_attr.flatten(0, 1))
         batch_node_h = node_h.reshape((B, N, -1))  # B, N, H
         batch_node_h = batch_node_h.permute((0, 2, 1))  # B, H, N
         batch_full_node_h = torch.diag_embed(batch_node_h)  # B, H, N, N

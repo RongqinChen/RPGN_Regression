@@ -47,6 +47,7 @@ class SpecDistGNN(nn.Module):
     ):
 
         super(SpecDistGNN, self).__init__()
+        self.task_type = task_type
         self.norm_type = norm_type
         self.drop_prob = drop_prob
         self.dropout = nn.Dropout(drop_prob)
