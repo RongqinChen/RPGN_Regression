@@ -1,5 +1,5 @@
 """
-script to train on QM9 targets.
+script to run on QM9 tasks.
 """
 
 import os
@@ -75,7 +75,7 @@ def main():
     args = utils.update_args(args)
 
     dataset = QM9("data/QM9")
-    # pre-compute Positional encoding
+    # pre-computing positional encoding
     time_start = time.perf_counter()
     pe_computation = PositionalEncodingComputation(args.pe_method, args.pe_power)
     args.pe_len = pe_computation.pe_len
@@ -130,11 +130,11 @@ def main():
 
         loss_criterion = nn.MSELoss()
         evaluator = MeanAbsoluteErrorQM9(std.item(), conversion[args.task].item())
-        init_encoder = QM9NodeEncoder(out_channels=args.emb_channels)
+        node_encoder = QM9NodeEncoder(out_channels=args.emb_channels)
         edge_encoder = EdgeEncoder(out_channels=args.emb_channels)
         modelmodule = PlGNNTestonValModule(
             loss_criterion=loss_criterion, evaluator=evaluator,
-            args=args, init_encoder=init_encoder, edge_encoder=edge_encoder
+            args=args, node_encoder=node_encoder, edge_encoder=edge_encoder
         )
 
         trainer = Trainer(

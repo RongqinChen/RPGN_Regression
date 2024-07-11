@@ -106,11 +106,12 @@ class SpecDistGNN(nn.Module):
             h = self.act(h)
             h_list.append(h)
 
+        task_level = self.task_type.split('_')[0]
         if self.jk_mlp is not None:
-            z_list = [self.graph_pool(h) for h in h_list]
+            z_list = [self.graph_pool(h, task_level) for h in h_list]
             z = self.jk_mlp(torch.cat(z_list, 1))
         else:
-            z = self.graph_pool(h_list[-1])
+            z = self.graph_pool(h_list[-1], task_level)
 
         out = self.out_decoder(z)
         return out

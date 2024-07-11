@@ -1,17 +1,20 @@
 """
-script to run on ZINC-full task.
+script to run on ZINC task.
 """
 import os
 import time
+
+import numpy as np
 import torch
-import torchmetrics
+import torch.nn.functional as F
 import wandb
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from lightning.pytorch.loggers import WandbLogger
+from sklearn.metrics import confusion_matrix
 from torch import Tensor, nn
-from torch_geometric.datasets import ZINC
+from torch_geometric.datasets import GNNBenchmarkDataset
 
 import utils
 from interfaces.pl_data import PlPyGDataTestonValModule
@@ -24,23 +27,23 @@ torch.set_float32_matmul_precision('high')
 
 def main():
     parser = utils.args_setup()
-    parser.add_argument("--dataset_name", type=str, default="ZINC", help="Name of dataset.")
-    parser.add_argument("--config_file", type=str, default="configs/zinc.yaml",
+    # parser.add_argument("--dataset_name", type=str, default="PATTERN", help="Name of dataset.")
+    parser.add_argument("--config_file", type=str, default="configs/pattern.yaml",
                         help="Additional configuration file for different dataset and models.")
-    parser.add_argument("--runs", type=int, default=5, help="Number of repeat run.")
+    parser.add_argument("--runs", type=int, default=10, help="Number of repeat run.")
     args = parser.parse_args()
 
     args = utils.update_args(args)
-    args.full = True
+    args.full = False
     if args.full:
-        args.project_name = "Full" + args.project_name
+        args.project_name = "full_" + args.project_name
 
-    path = "data/ZINC"
-    train_dataset = ZINC(path, not args.full, "train")
-    val_dataset = ZINC(path, not args.full, "val")
-    test_dataset = ZINC(path, not args.full, "test")
+    train_dataset = GNNBenchmarkDataset("data", args.dataset_name, "train")
+    val_dataset = GNNBenchmarkDataset("data", args.dataset_name, "val")
+    test_dataset = GNNBenchmarkDataset("data", args.dataset_name, "test")
 
     # pre-compute Positional encoding
+    print("Computing positional encoding ...")
     time_start = time.perf_counter()
     pe_computation = PositionalEncodingComputation(args.pe_method, args.pe_power)
     args.pe_len = pe_computation.pe_len
@@ -68,13 +71,14 @@ def main():
             batch_size=args.batch_size,
             num_workers=args.num_workers,
         )
-        loss_criterion = nn.L1Loss()
-        evaluator = torchmetrics.MeanAbsoluteError()
-        node_encoder = NodeEncoder(28, args.emb_channels)
-        edge_encoder = EdgeEncoder(4, args.emb_channels)
+        # loss_criterion = nn.L1Loss()
+        # evaluator = torchmetrics.MeanAbsoluteError()
+        in_channels = train_dataset._data.x.size(1)
+        node_encoder = NodeEncoder(in_channels, args.emb_channels)
+        edge_encoder = EdgeEncoder(None, 0)
 
         modelmodule = PlGNNTestonValModule(
-            loss_criterion=loss_criterion, evaluator=evaluator,
+            loss_criterion=weighted_cross_entropy, evaluator=accuracy_SBM,
             args=args, node_encoder=node_encoder, edge_encoder=edge_encoder
         )
 
@@ -110,20 +114,20 @@ def main():
 
 
 class NodeEncoder(torch.nn.Module):
-    def __init__(self, num_types, out_channels, padding_idx=0):
+    def __init__(self, in_channels, out_channels, padding_idx=0):
         super().__init__()
-        self.emb = nn.Embedding(num_types + 1, out_channels, padding_idx)
+        self.linear = nn.Linear(in_channels, out_channels, padding_idx)
         self.out_channels = out_channels
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.emb.reset_parameters()
+        self.linear.reset_parameters()
 
     def forward(self, batch: dict):
         # Encode just the first dimension if more exist
         batch_node_attr = batch["batch_node_attr"]
         B, N, _ = batch_node_attr.size()
-        node_h: Tensor = self.emb(batch_node_attr[:, :, 0].flatten())
+        node_h: Tensor = self.linear(batch_node_attr[:, :, 0].flatten())
         batch_node_h = node_h.reshape((B, N, -1))  # B, N, H
         batch_node_h = batch_node_h.permute((0, 2, 1))  # B, H, N
         batch_full_node_h = torch.diag_embed(batch_node_h)  # B, H, N, N
@@ -131,23 +135,61 @@ class NodeEncoder(torch.nn.Module):
 
 
 class EdgeEncoder(torch.nn.Module):
-    def __init__(self, num_types, out_channels, padding_idx=0):
+    def __init__(self, in_channels, out_channels, padding_idx=0):
         super().__init__()
-        self.emb = nn.Embedding(num_types + 1, out_channels, padding_idx)
-        self.out_channels = out_channels
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        self.emb.reset_parameters()
+        self.out_channels = 0
 
     def forward(self, batch: dict):
         # Encode just the first dimension if more exist
-        batch_full_edge_attr = batch["batch_full_edge_attr"]
-        B, N, N, _ = batch_full_edge_attr.size()
-        edge_h: Tensor = self.emb(batch_full_edge_attr[:, :, :, 0].flatten())
-        batch_full_edge_h = edge_h.reshape((B, N, N, -1))
-        batch_full_edge_h = batch_full_edge_h.permute((0, 3, 1, 2)).contiguous()
+        batch_node_attr: Tensor = batch["batch_node_attr"]
+        B, N, _ = batch_node_attr.size()
+        batch_full_edge_h = batch_node_attr.new_empty((B, 0, N, N))
         return batch_full_edge_h
+
+
+def accuracy_SBM(targets, pred_int):
+    """Accuracy eval for Benchmarking GNN's PATTERN and CLUSTER datasets.
+    https://github.com/graphdeeplearning/benchmarking-gnns/blob/master/train/metrics.py#L34
+    """
+    S = targets
+    C = pred_int
+    CM = confusion_matrix(S, C).astype(np.float32)
+    nb_classes = CM.shape[0]
+    targets = targets.cpu().detach().numpy()
+    nb_non_empty_classes = 0
+    pr_classes = np.zeros(nb_classes)
+    for r in range(nb_classes):
+        cluster = np.where(targets == r)[0]
+        if cluster.shape[0] != 0:
+            pr_classes[r] = CM[r, r] / float(cluster.shape[0])
+            if CM[r, r] > 0:
+                nb_non_empty_classes += 1
+        else:
+            pr_classes[r] = 0.0
+    acc = np.sum(pr_classes) / float(nb_classes)
+    return acc
+
+
+def weighted_cross_entropy(pred, true):
+    """Weighted cross-entropy for unbalanced classes.
+    """
+    # calculating label weights for weighted loss computation
+    V = true.size(0)
+    n_classes = pred.shape[1] if pred.ndim > 1 else 2
+    label_count = torch.bincount(true)
+    label_count = label_count[label_count.nonzero(as_tuple=True)].squeeze()
+    cluster_sizes = torch.zeros(n_classes, device=pred.device).long()
+    cluster_sizes[torch.unique(true)] = label_count
+    weight = (V - cluster_sizes).float() / V
+    weight *= (cluster_sizes > 0).float()
+    # multiclass
+    if pred.ndim > 1:
+        pred = F.log_softmax(pred, dim=-1)
+        return F.nll_loss(pred, true, weight=weight), pred
+    # binary
+    else:
+        loss = F.binary_cross_entropy_with_logits(pred, true.float(), weight=weight[true])
+        return loss, torch.sigmoid(pred)
 
 
 if __name__ == "__main__":

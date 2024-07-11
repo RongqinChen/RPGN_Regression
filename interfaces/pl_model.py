@@ -115,10 +115,10 @@ class PlGNNTestonValModule(PlGNNModule):
 
     def __init__(
         self, loss_criterion: nn.Module, evaluator: Metric, args: ArgumentParser,
-        init_encoder: Optional[nn.Module] = None,
+        node_encoder: Optional[nn.Module] = None,
         edge_encoder: Optional[nn.Module] = None,
     ):
-        model = make_model(args, init_encoder, edge_encoder)
+        model = make_model(args, node_encoder, edge_encoder)
         super(PlGNNTestonValModule, self).__init__(loss_criterion, evaluator, args, model)
         self.test_eval_still = self.args.test_eval_interval
 

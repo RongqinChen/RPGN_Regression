@@ -61,7 +61,7 @@ class Collater:
 
         batch_num_nodes = torch.tensor(num_nodes)
 
-        y = torch.stack([data.y for data in batch], 0)
+        y = torch.cat([data.y for data in batch], 0)
         batch = {
             "batch_node_attr": batch_node_attr,
             "batch_node_mask": batch_node_mask,

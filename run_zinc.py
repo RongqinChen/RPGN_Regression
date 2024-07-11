@@ -1,5 +1,5 @@
 """
-script to train on ZINC task.
+script to run on ZINC task.
 """
 import os
 import time
@@ -27,10 +27,7 @@ def main():
     parser.add_argument("--dataset_name", type=str, default="ZINC", help="Name of dataset.")
     parser.add_argument("--config_file", type=str, default="configs/zinc.yaml",
                         help="Additional configuration file for different dataset and models.")
-    # parser.add_argument("--task_type", type=str, default="graph_regression", help="Task type.")
-    # parser.add_argument("--num_task", type=int, default=1, help="The number of tasks.")
     parser.add_argument("--runs", type=int, default=10, help="Number of repeat run.")
-    # parser.add_argument("--full", action="store_true", help="If true, run ZINC full.")
     args = parser.parse_args()
 
     args = utils.update_args(args)
@@ -73,12 +70,12 @@ def main():
         )
         loss_criterion = nn.L1Loss()
         evaluator = torchmetrics.MeanAbsoluteError()
-        init_encoder = NodeEncoder(21, args.emb_channels)
+        node_encoder = NodeEncoder(21, args.emb_channels)
         edge_encoder = EdgeEncoder(4, args.emb_channels)
 
         modelmodule = PlGNNTestonValModule(
             loss_criterion=loss_criterion, evaluator=evaluator,
-            args=args, init_encoder=init_encoder, edge_encoder=edge_encoder
+            args=args, node_encoder=node_encoder, edge_encoder=edge_encoder
         )
 
         trainer = Trainer(
