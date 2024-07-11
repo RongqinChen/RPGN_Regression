@@ -15,6 +15,7 @@ from lightning.pytorch.loggers import WandbLogger
 from sklearn.metrics import confusion_matrix
 from torch import Tensor, nn
 from torch_geometric.datasets import GNNBenchmarkDataset
+from torchmetrics.metric import Metric
 
 import utils
 from interfaces.pl_data import PlPyGDataTestonValModule
@@ -68,7 +69,7 @@ def main():
             test_dataset=test_dataset,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
-            fill2same = False
+            fill2same=False
         )
         evaluator = SBM_Accuracy()
         in_channels = train_dataset._data.x.size(1)
@@ -145,13 +146,12 @@ class EdgeEncoder(torch.nn.Module):
         return batch_full_edge_h
 
 
-from torchmetrics.metric import Metric
 class SBM_Accuracy(Metric):
     def __init__(self):
         super().__init__()
         self.preds_list = []
         self.targets_list = []
-    
+
     def update(self, preds: Tensor, targets: Tensor) -> None:
         self.preds_list.append(preds.detach().cpu().numpy())
         self.targets_list.append(targets.detach().cpu().numpy())
@@ -159,16 +159,16 @@ class SBM_Accuracy(Metric):
     def compute(self) -> Tensor:
         preds = np.concatenate(self.preds_list, 0)
         targets = np.concatenate(self.targets_list, 0)
-        
+
         """Accuracy eval for Benchmarking GNN's PATTERN and CLUSTER datasets.
         https://github.com/graphdeeplearning/benchmarking-gnns/blob/master/train/metrics.py#L34
         """
         if len(preds.shape) == 1 or preds.shape[1] == 1:
-            preds_int = (preds > 0.5).astype(np.int64)
+            pred_labels = (preds > 0.).astype(np.int64)
         else:
-            preds_int = preds.max(dim=1)[1]
+            pred_labels = preds.max(dim=1)[1]
 
-        CM = confusion_matrix(targets, preds_int).astype(np.float32)
+        CM = confusion_matrix(targets, pred_labels).astype(np.float32)
         nb_classes = CM.shape[0]
         # targets = targets.cpu().detach().numpy()
         nb_non_empty_classes = 0
