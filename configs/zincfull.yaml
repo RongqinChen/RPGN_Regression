@@ -3,8 +3,8 @@ num_workers: 6
 lr: 1e-3
 min_lr: 1e-6
 l2_wd: 1e-5
-num_epochs: 350
-num_warmup_epochs: 20
+num_epochs: 2000
+num_warmup_epochs: 50
 emb_channels: 16
 hidden_channels: 88
 num_layers: 10
@@ -15,5 +15,6 @@ graph_pool: mean
 jumping_knowledge: last
 task_type: graph_regression
 num_task: 1
+runs: 10
 pe_method: bern_mixed_sym2
 pe_power: 16

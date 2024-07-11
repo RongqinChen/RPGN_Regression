@@ -69,8 +69,7 @@ def main():
     parser.add_argument("--dataset_name", type=str, default="QM9", help="Name of dataset.")
     parser.add_argument("--config_file", type=str, default="configs/qm9.yaml",
                         help="Additional configuration file for different dataset and models.")
-    parser.add_argument("--task", type=int, default=11, choices=list(range(19)), help="Train target.")
-    parser.add_argument("--search", action="store_true", help="If true, run all first 12 targets.")
+    parser.add_argument("--task", type=int, default=11, choices=list(range(19)), help="Train target. -1 for all first 12 targets.")
 
     args = parser.parse_args()
     args = utils.update_args(args)
@@ -86,7 +85,7 @@ def main():
     pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
     print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
 
-    if args.search:
+    if args.task == -1:
         targets = list(range(12))
     else:
         targets = [args.task]
