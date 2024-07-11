@@ -1,8 +1,8 @@
 """
 script to train on ZINC task.
 """
+import os
 import time
-
 import torch
 import torchmetrics
 import wandb
@@ -18,6 +18,7 @@ from interfaces.pl_data import PlPyGDataTestonValModule
 from interfaces.pl_model import PlGNNTestonValModule
 from positional_encoding import PositionalEncodingComputation
 
+torch.set_num_threads(8)
 torch.set_float32_matmul_precision('high')
 
 
@@ -50,12 +51,13 @@ def main():
     val_dataset._data_list = [pe_computation(data) for data in val_dataset]
     test_dataset._data_list = [pe_computation(data) for data in test_dataset]
 
-    elapsed = time.perf_counter() - time_start
-    elapsed = time.strftime("%H:%M:%S", time.gmtime(elapsed)) + f"{elapsed:.2f}"[-3:]
-    print("running time", f"Took {elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
+    pe_elapsed = time.perf_counter() - time_start
+    pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
+    print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
 
+    MACHINE = os.environ.get("MACHINE", "") + "_"
     for i in range(1, args.runs + 1):
-        logger = WandbLogger(name=f"run_{str(i)}", project=args.project_name, save_dir=args.save_dir, offline=args.offline)
+        logger = WandbLogger(f"run_{str(i)}", args.save_dir, offline=args.offline, project=MACHINE + args.project_name)
         logger.log_hyperparams(args)
         timer = Timer(duration=dict(weeks=4))
 
@@ -102,6 +104,8 @@ def main():
             "final/best_test_metric": test_result["test/metric"],
             "final/avg_train_time_epoch": timer.time_elapsed("train") / args.num_epochs,
         }
+        print("Positional encoding:", f"({args.pe_method}, {args.pe_power})")
+        print("PE computation time:", pe_elapsed)
         print("torch.cuda.max_memory_reserved: %fGB" % (torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024))
         logger.log_metrics(results)
         wandb.finish()
