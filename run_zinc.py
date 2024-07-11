@@ -1,6 +1,7 @@
 """
 script to train on ZINC task.
 """
+import os
 import time
 import torch
 import torchmetrics
@@ -54,8 +55,9 @@ def main():
     pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
     print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
 
+    MACHINE = os.environ.get("MACHINE", "") + "_"
     for i in range(1, args.runs + 1):
-        logger = WandbLogger(name=f"run_{str(i)}", project='135-' + args.project_name, save_dir=args.save_dir, offline=args.offline)
+        logger = WandbLogger(f"run_{str(i)}", args.save_dir, offline=args.offline, project=MACHINE + args.project_name)
         logger.log_hyperparams(args)
         timer = Timer(duration=dict(weeks=4))
 
@@ -103,9 +105,9 @@ def main():
             "final/best_val_metric": val_result["val/metric"],
             "final/best_test_metric": test_result["test/metric"],
             "final/avg_train_time_epoch": timer.time_elapsed("train") / args.num_epochs,
-            "pe": f"({args.pe_method}, {args.pe_power})",
-            "pe computation time": pe_elapsed,
         }
+        print("Positional encoding:", f"({args.pe_method}, {args.pe_power})")
+        print("PE computation time:", pe_elapsed)
         print("torch.cuda.max_memory_reserved: %fGB" % (torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024))
         logger.log_metrics(results)
         wandb.finish()

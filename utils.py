@@ -79,7 +79,7 @@ def update_args(args: argparse.ArgumentParser) -> argparse.ArgumentParser:
     ]
     model_cfg = ".".join(arg_list)
     args.project_name = f"{args.dataset_name}_{model_cfg}"
-    args.save_dir = args.save_dir + "/" + args.project_name
+    args.save_dir = args.save_dir + "/" + args.dataset_name
     os.makedirs(args.save_dir, exist_ok=True)
     return args
 
