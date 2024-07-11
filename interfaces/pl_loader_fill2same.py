@@ -30,7 +30,7 @@ class Collater:
         batch_node_mask = torch.tensor([
             [1] * n + [0] * (maxN - n)
             for n in num_nodes
-        ])  # B, N
+        ], dtype=torch.bool)  # B, N
 
         edge_attr_size = 1 if batch[0].edge_attr.ndim == 1 else batch[0].edge_attr.size(1)
         if edge_attr_size == 1:
@@ -42,11 +42,11 @@ class Collater:
         full_edge_mask_list = []
         for idx, data in enumerate(batch):
             full_edge_attr = torch.zeros((maxN, maxN, edge_attr_size), dtype=torch.long)
-            full_edge_mask = torch.zeros((maxN, maxN))
+            full_edge_mask = torch.zeros((maxN, maxN), dtype=torch.bool)
 
             dst, src = data.edge_index
             full_edge_attr[dst, src, :] = (edge_attr_list[idx] + 1)
-            full_edge_mask[dst, src] = 1.
+            full_edge_mask[dst, src] = True
             full_edge_attr_list.append(full_edge_attr)
             full_edge_mask_list.append(full_edge_mask)
 

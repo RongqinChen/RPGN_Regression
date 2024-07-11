@@ -70,15 +70,15 @@ def main():
             test_dataset=test_dataset,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
+            fill2same = False
         )
-        # loss_criterion = nn.L1Loss()
-        # evaluator = torchmetrics.MeanAbsoluteError()
+        evaluator = SBM_Accuracy()
         in_channels = train_dataset._data.x.size(1)
         node_encoder = NodeEncoder(in_channels, args.emb_channels)
         edge_encoder = EdgeEncoder(None, 0)
 
         modelmodule = PlGNNTestonValModule(
-            loss_criterion=weighted_cross_entropy, evaluator=accuracy_SBM,
+            loss_criterion=weighted_cross_entropy, evaluator=evaluator,
             args=args, node_encoder=node_encoder, edge_encoder=edge_encoder
         )
 
@@ -147,27 +147,45 @@ class EdgeEncoder(torch.nn.Module):
         return batch_full_edge_h
 
 
-def accuracy_SBM(targets, pred_int):
-    """Accuracy eval for Benchmarking GNN's PATTERN and CLUSTER datasets.
-    https://github.com/graphdeeplearning/benchmarking-gnns/blob/master/train/metrics.py#L34
-    """
-    S = targets
-    C = pred_int
-    CM = confusion_matrix(S, C).astype(np.float32)
-    nb_classes = CM.shape[0]
-    targets = targets.cpu().detach().numpy()
-    nb_non_empty_classes = 0
-    pr_classes = np.zeros(nb_classes)
-    for r in range(nb_classes):
-        cluster = np.where(targets == r)[0]
-        if cluster.shape[0] != 0:
-            pr_classes[r] = CM[r, r] / float(cluster.shape[0])
-            if CM[r, r] > 0:
-                nb_non_empty_classes += 1
+from torchmetrics.metric import Metric
+class SBM_Accuracy(Metric):
+    def __init__(self):
+        super().__init__()
+        self.preds_list = []
+        self.targets_list = []
+    
+    def update(self, preds: Tensor, targets: Tensor) -> None:
+        self.preds_list.append(preds.detach().cpu().numpy())
+        self.targets_list.append(targets.detach().cpu().numpy())
+
+    def compute(self) -> Tensor:
+        preds = np.concatenate(self.preds_list, 0)
+        targets = np.concatenate(self.targets_list, 0)
+        
+        """Accuracy eval for Benchmarking GNN's PATTERN and CLUSTER datasets.
+        https://github.com/graphdeeplearning/benchmarking-gnns/blob/master/train/metrics.py#L34
+        """
+        if len(preds.shape) == 1 or preds.shape[1] == 1:
+            preds_int = (preds > 0.5).astype(np.int64)
         else:
-            pr_classes[r] = 0.0
-    acc = np.sum(pr_classes) / float(nb_classes)
-    return acc
+            preds_int = preds.max(dim=1)[1]
+
+        CM = confusion_matrix(targets, preds_int).astype(np.float32)
+        nb_classes = CM.shape[0]
+        # targets = targets.cpu().detach().numpy()
+        nb_non_empty_classes = 0
+        pr_classes = np.zeros(nb_classes)
+        for r in range(nb_classes):
+            cluster = np.where(targets == r)[0]
+            if cluster.shape[0] != 0:
+                pr_classes[r] = CM[r, r] / float(cluster.shape[0])
+                if CM[r, r] > 0:
+                    nb_non_empty_classes += 1
+            else:
+                pr_classes[r] = 0.0
+        acc = np.sum(pr_classes) / float(nb_classes)
+        acc = torch.tensor(acc)
+        return acc
 
 
 def weighted_cross_entropy(pred, true):
@@ -185,11 +203,11 @@ def weighted_cross_entropy(pred, true):
     # multiclass
     if pred.ndim > 1:
         pred = F.log_softmax(pred, dim=-1)
-        return F.nll_loss(pred, true, weight=weight), pred
+        return F.nll_loss(pred, true, weight=weight)
     # binary
     else:
         loss = F.binary_cross_entropy_with_logits(pred, true.float(), weight=weight[true])
-        return loss, torch.sigmoid(pred)
+        return loss
 
 
 if __name__ == "__main__":

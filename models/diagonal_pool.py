@@ -13,7 +13,7 @@ def diag_offdiag_maxpool(inputs):
     return torch.cat((max_diag, max_offdiag), dim=1)  # output Bx2S
 
 
-def diag_offdiag_avgpool(inputs, level="graph"):
+def diag_offdiag_avgpool(inputs, level="graph", batch_node_mask=None):
     # inputs.shape: B, H, N, N
     N = inputs.shape[-1]
 
@@ -21,6 +21,8 @@ def diag_offdiag_avgpool(inputs, level="graph"):
         diag_val = torch.diagonal(inputs, dim1=-2, dim2=-1)  # B, H, N
         offdiag_val = (torch.sum(inputs, dim=-1) + torch.sum(inputs, dim=-2) - 2 * diag_val) / (2 * N - 2)
         outputs = torch.cat((diag_val, offdiag_val), dim=1)  # B, 2H, N
+        outputs = outputs.permute((0, 2, 1)).flatten(0, 1)
+        outputs = outputs[batch_node_mask.flatten(0, 1), :]
     elif level == "graph":
         diag_sum = torch.sum(torch.diagonal(inputs, dim1=-2, dim2=-1), dim=2)  # B, H
         diag_avg = diag_sum / N

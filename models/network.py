@@ -109,10 +109,10 @@ class SpecDistGNN(nn.Module):
 
         task_level = self.task_type.split('_')[0]
         if self.jk_mlp is not None:
-            z_list = [self.graph_pool(h, task_level) for h in h_list]
+            z_list = [self.graph_pool(h, task_level, data["batch_node_mask"]) for h in h_list]
             z = self.jk_mlp(torch.cat(z_list, 1))
         else:
-            z = self.graph_pool(h_list[-1], task_level)
+            z = self.graph_pool(h_list[-1], task_level, data["batch_node_mask"])
 
         out = self.out_decoder(z)
         return out
