@@ -6,8 +6,8 @@ l2_wd: 1e-5
 num_epochs: 350
 num_warmup_epochs: 20
 emb_channels: 16
-hidden_channels: 96
-num_layers: 8
+hidden_channels: 88
+num_layers: 10
 mlp_depth: 1
 norm_type: Batch
 drop_prob: 0.0
@@ -16,3 +16,5 @@ jumping_knowledge: last
 task_type: graph_regression
 num_task: 1
 runs: 10
+pe_method: bern_mixed_sym2
+pe_power: 16

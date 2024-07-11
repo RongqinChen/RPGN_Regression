@@ -50,7 +50,6 @@ def main():
     train_dataset._data_list = [pe_computation(data) for data in train_dataset]
     val_dataset._data_list = [pe_computation(data) for data in val_dataset]
     test_dataset._data_list = [pe_computation(data) for data in test_dataset]
-
     pe_elapsed = time.perf_counter() - time_start
     pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
     print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")

@@ -2,6 +2,7 @@
 script to train on QM9 targets.
 """
 
+import os
 import time
 
 import torch
@@ -14,22 +15,16 @@ from torch import Tensor, nn
 from torch_geometric.data import Data
 from torchmetrics import MeanAbsoluteError
 from torchmetrics.functional.regression.mae import _mean_absolute_error_compute
+from tqdm import tqdm
 
 import utils
 from datasets.QM9Dataset import QM9, conversion
 from interfaces.pl_data import PlPyGDataTestonValModule
 from interfaces.pl_model import PlGNNTestonValModule
-from models.input_encoder import EmbeddingEncoder, QM9InputEncoder
 from positional_encoding import PositionalEncodingComputation
 
-
-class StoreLabel(object):
-    def __init__(self):
-        super().__init__()
-
-    def __call__(self, data: Data) -> Data:
-        data.label = data.y.clone()
-        return data
+torch.set_num_threads(8)
+torch.set_float32_matmul_precision('high')
 
 
 class SetY(object):
@@ -40,7 +35,7 @@ class SetY(object):
         self.std = std
 
     def __call__(self, data: Data) -> Data:
-        data.y = (data.label[0, self.target] - self.mean) / self.std
+        data.y = (data.label[:, self.target] - self.mean) / self.std
         return data
 
 
@@ -52,10 +47,10 @@ class InputTransform(object):
         super().__init__()
 
     def __call__(self, data: Data) -> Data:
-        x = data.x
-        z = data.z
-        data.x = torch.cat([z.unsqueeze(-1), x], dim=-1)
+        data.x = torch.cat([data.z.unsqueeze(-1), data.x], dim=-1)
         data.edge_attr = torch.where(data.edge_attr == 1)[-1]
+        data.label = data.y.clone()
+        del data.y
         return data
 
 
@@ -86,15 +81,10 @@ def main():
     pe_computation = PositionalEncodingComputation(args.pe_method, args.pe_power)
     args.pe_len = pe_computation.pe_len
     input_transform = InputTransform()
-    store_label_fn = StoreLabel()
-    dataset._data_list = [
-        pe_computation(input_transform(store_label_fn(data)))
-        for data in dataset
-    ]
-    elapsed = time.perf_counter() - time_start
-    elapsed = time.strftime("%H:%M:%S", time.gmtime(elapsed)) + f"{elapsed:.2f}"[-3:]
-    print("running time", f"Took {elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
-    args.precomputation_time = elapsed
+    dataset._data_list = [pe_computation(input_transform(data)) for data in tqdm(dataset, 'Computing PE ..')]
+    pe_elapsed = time.perf_counter() - time_start
+    pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
+    print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
 
     if args.search:
         targets = list(range(12))
@@ -110,13 +100,20 @@ def main():
         val_dataset = dataset[tenprecent:2 * tenprecent]
 
         y_list = [data.label[0, target] for data in train_dataset]
-        y_train = torch.cat(y_list, 0)
+        y_train = torch.stack(y_list, 0)
         mean, std = y_train.mean(), y_train.std()
 
+        del train_dataset._data
+        del test_dataset._data
+        del val_dataset._data
         set_y_fn = SetY(target, mean, std)
         dataset._data_list = [set_y_fn(data) for data in dataset]
+        train_dataset._data_list = dataset._data_list
+        test_dataset._data_list = dataset._data_list
+        val_dataset._data_list = dataset._data_list
 
-        logger = WandbLogger(name=f"target_{str(args.task + 1)}", project=args.exp_name, save_dir=args.save_dir, offline=args.offline)
+        MACHINE = os.environ.get("MACHINE", "") + "_"
+        logger = WandbLogger(f"target_{str(target + 1)}", args.save_dir, offline=args.offline, project=MACHINE + args.project_name)
         logger.log_hyperparams(args)
         timer = Timer(duration=dict(weeks=4))
 
@@ -133,9 +130,9 @@ def main():
         )
 
         loss_criterion = nn.MSELoss()
-        evaluator = MeanAbsoluteErrorQM9(std[args.task].item(), conversion[args.task].item())
-        init_encoder = QM9InputEncoder(args.hidden_channels)
-        edge_encoder = EmbeddingEncoder(4, args.inner_channels)
+        evaluator = MeanAbsoluteErrorQM9(std.item(), conversion[args.task].item())
+        init_encoder = QM9NodeEncoder(out_channels=args.emb_channels)
+        edge_encoder = EdgeEncoder(out_channels=args.emb_channels)
         modelmodule = PlGNNTestonValModule(
             loss_criterion=loss_criterion, evaluator=evaluator,
             args=args, init_encoder=init_encoder, edge_encoder=edge_encoder
@@ -163,75 +160,49 @@ def main():
             "final/best_test_metric": test_result["test/metric"],
             "final/avg_train_time_epoch": timer.time_elapsed("train") / args.num_epochs,
         }
+        print("Positional encoding:", f"({args.pe_method}, {args.pe_power})")
+        print("PE computation time:", pe_elapsed)
+        print("torch.cuda.max_memory_reserved: %fGB" % (torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024))
         logger.log_metrics(results)
         wandb.finish()
 
     return
 
 
-class QM9InputEncoder(nn.Module):
-    r"""Input encoder for QM9 dataset.
-    Args:
-        hidden_channels (int): Hidden size.
-        use_pos (bool, optional): If True, add position feature to embedding.
-    """
-
-    def __init__(self,
-                 hidden_channels: int,
-                 use_pos: Optional[bool] = False):
-        super(QM9InputEncoder, self).__init__()
-        self.use_pos = use_pos
-        if use_pos:
-            in_channels = 22
-        else:
-            in_channels = 19
-        self.init_proj = Linear(in_channels, hidden_channels)
-        self.z_embedding = nn.Embedding(10, 8)
-
-    def reset_parameters(self):
-        self.init_proj.reset_parameters()
-        self.z_embedding.reset_parameters()
-
-    def forward(self, x: Tensor) -> Tensor:
-        z = x[:, 0].squeeze().long()
-        x = x[:, 1:]
-        z_emb = self.z_embedding(z)
-        # concatenate with continuous node features
-        x = torch.cat([z_emb, x], -1)
-        x = self.init_proj(x)
-
-        return x
-
-
-class QM9NodeEncoder(torch.nn.Module):
-    def __init__(self, num_types, out_channels, use_pos, padding_idx=0):
+class QM9NodeEncoder(nn.Module):
+    def __init__(self, num_types=10, out_channels=8, use_pos=False, padding_idx=0):
         super().__init__()
         self.use_pos = use_pos
         if use_pos:
             in_channels = 22
         else:
             in_channels = 19
+        self.z_embedding = nn.Embedding(num_types + 1, 8, padding_idx)
         self.init_proj = nn.Linear(in_channels, out_channels)
-        self.z_embedding = nn.Embedding(num_types + 1, out_channels, padding_idx)
         self.out_channels = out_channels
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.emb.reset_parameters()
+        self.z_embedding.reset_parameters()
+        self.init_proj.reset_parameters()
 
     def forward(self, batch: dict):
         # Encode just the first dimension if more exist
-        batch_node_attr = batch["batch_node_attr"]
-        B, N, _ = batch_node_attr.size()
-        node_h: Tensor = self.emb(batch_node_attr[:, :, 0].flatten())
-        batch_node_h = node_h.reshape((B, N, -1))  # B, N, H
+        x: Tensor = batch["batch_node_attr"]
+        B, N, _ = x.size()
+        z = x[:, :, 0].flatten().long()
+        x = x[:, :, 1:].flatten(0, 1) - 1.
+        h1 = self.z_embedding(z)
+        x2 = torch.cat([h1, x], -1)
+        x3 = self.init_proj(x2)
+        batch_node_h = x3.reshape((B, N, -1))  # B, N, H
         batch_node_h = batch_node_h.permute((0, 2, 1))  # B, H, N
         batch_full_node_h = torch.diag_embed(batch_node_h)  # B, H, N, N
         return batch_full_node_h
 
 
-class EdgeEncoder(torch.nn.Module):
-    def __init__(self, num_types, out_channels, padding_idx=0):
+class EdgeEncoder(nn.Module):
+    def __init__(self, num_types=4, out_channels=8, padding_idx=0):
         super().__init__()
         self.emb = nn.Embedding(num_types + 1, out_channels, padding_idx)
         self.out_channels = out_channels
@@ -248,7 +219,6 @@ class EdgeEncoder(torch.nn.Module):
         batch_full_edge_h = edge_h.reshape((B, N, N, -1))
         batch_full_edge_h = batch_full_edge_h.permute((0, 3, 1, 2)).contiguous()
         return batch_full_edge_h
-
 
 
 if __name__ == "__main__":
