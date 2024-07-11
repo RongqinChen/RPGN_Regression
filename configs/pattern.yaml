@@ -17,4 +17,4 @@ jumping_knowledge: last
 task_type: node_classification
 num_task: 1
 pe_method: bern_mixed_sym2
-pe_power: 4
+pe_power: 16
