@@ -19,7 +19,6 @@ class Collater:
     def __call__(self, batch: List[Data]) -> dict:
         pe_list = [data["pe"] for data in batch]
         num_nodes = [data.num_nodes for data in batch]
-        # maxN = max(num_nodes)
         maxN = self.max_num_nodes
 
         batch_node_attr = torch.nn.utils.rnn.pad_sequence(
@@ -35,9 +34,7 @@ class Collater:
 
         edge_attr_size = 1 if batch[0].edge_attr.ndim == 1 else batch[0].edge_attr.size(1)
         if edge_attr_size == 1:
-            edge_attr_list = [
-                data.edge_attr.view((-1, 1)) for data in batch
-            ]
+            edge_attr_list = [data.edge_attr.view((-1, 1)) for data in batch]
         else:
             edge_attr_list = [data.edge_attr for data in batch]
 

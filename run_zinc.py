@@ -2,7 +2,6 @@
 script to train on ZINC task.
 """
 import time
-
 import torch
 import torchmetrics
 import wandb
@@ -18,6 +17,7 @@ from interfaces.pl_data import PlPyGDataTestonValModule
 from interfaces.pl_model import PlGNNTestonValModule
 from positional_encoding import PositionalEncodingComputation
 
+torch.set_num_threads(8)
 torch.set_float32_matmul_precision('high')
 
 
@@ -83,15 +83,20 @@ def main():
             init_encoder=init_encoder,
             edge_encoder=edge_encoder
         )
-        trainer = Trainer(accelerator="auto",
-                          devices="auto",
-                          max_epochs=args.num_epochs,
-                          enable_checkpointing=True,
-                          enable_progress_bar=True,
-                          logger=logger,
-                          callbacks=[TQDMProgressBar(refresh_rate=20),
-                                     ModelCheckpoint(monitor="val/metric", mode=args.mode),
-                                     LearningRateMonitor(logging_interval="epoch"), timer])
+        trainer = Trainer(
+            accelerator="auto",
+            devices="auto",
+            max_epochs=args.num_epochs,
+            enable_checkpointing=True,
+            enable_progress_bar=True,
+            logger=logger,
+            callbacks=[
+                TQDMProgressBar(refresh_rate=20),
+                ModelCheckpoint(monitor="val/metric", mode=args.mode),
+                LearningRateMonitor(logging_interval="epoch"),
+                timer
+            ]
+        )
 
         trainer.fit(modelmodule, datamodule=datamodule)
         val_result, test_result = trainer.test(modelmodule, datamodule=datamodule, ckpt_path="best")
