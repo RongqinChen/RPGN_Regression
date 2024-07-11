@@ -74,6 +74,8 @@ def update_args(args: argparse.ArgumentParser) -> argparse.ArgumentParser:
         str(args.num_layers),
         str(args.hidden_channels),
         str(args.mlp_depth),
+        str(args.pe_method),
+        str(args.pe_power),
     ]
     model_cfg = ".".join(arg_list)
     args.project_name = f"{args.dataset_name}_{model_cfg}"

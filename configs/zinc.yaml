@@ -16,3 +16,5 @@ jumping_knowledge: last
 task_type: graph_regression
 num_task: 1
 runs: 10
+pe_method: bern_mixed_sym2
+pe_power: 16

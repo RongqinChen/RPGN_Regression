@@ -22,7 +22,7 @@ class Collater:
         maxN = self.max_num_nodes
 
         batch_node_attr = torch.nn.utils.rnn.pad_sequence(
-            [data.x + 1 for data in batch],
+            [data.x + 1 for data in batch],  # `x + 1` because 0s for padding
             batch_first=True
         )  # B, N, *
         B, N, H = batch_node_attr.size()
