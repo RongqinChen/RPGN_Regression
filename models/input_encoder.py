@@ -46,40 +46,6 @@ class LinearEncoder(nn.Module):
         return self.init_proj(x)
 
 
-class QM9InputEncoder(nn.Module):
-    r"""Input encoder for QM9 dataset.
-    Args:
-        hidden_channels (int): Hidden size.
-        use_pos (bool, optional): If True, add position feature to embedding.
-    """
-
-    def __init__(self,
-                 hidden_channels: int,
-                 use_pos: Optional[bool] = False):
-        super(QM9InputEncoder, self).__init__()
-        self.use_pos = use_pos
-        if use_pos:
-            in_channels = 22
-        else:
-            in_channels = 19
-        self.init_proj = Linear(in_channels, hidden_channels)
-        self.z_embedding = nn.Embedding(10, 8)
-
-    def reset_parameters(self):
-        self.init_proj.reset_parameters()
-        self.z_embedding.reset_parameters()
-
-    def forward(self, x: Tensor) -> Tensor:
-        z = x[:, 0].squeeze().long()
-        x = x[:, 1:]
-        z_emb = self.z_embedding(z)
-        # concatenate with continuous node features
-        x = torch.cat([z_emb, x], -1)
-        x = self.init_proj(x)
-
-        return x
-
-
 @torch.jit.script
 def gaussian(x: Tensor, mean: Tensor, std: Tensor) -> Tensor:
     r"""Gaussian basis.

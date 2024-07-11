@@ -26,8 +26,8 @@ def main():
     parser.add_argument("--dataset_name", type=str, default="ZINC", help="Name of dataset.")
     parser.add_argument("--config_file", type=str, default="configs/zinc.yaml",
                         help="Additional configuration file for different dataset and models.")
-    parser.add_argument("--task_type", type=str, default="graph_regression", help="Task type.")
-    parser.add_argument("--num_task", type=int, default=1, help="The number of tasks.")
+    # parser.add_argument("--task_type", type=str, default="graph_regression", help="Task type.")
+    # parser.add_argument("--num_task", type=int, default=1, help="The number of tasks.")
     parser.add_argument("--runs", type=int, default=10, help="Number of repeat run.")
     # parser.add_argument("--full", action="store_true", help="If true, run ZINC full.")
     args = parser.parse_args()
@@ -72,26 +72,28 @@ def main():
         )
         loss_criterion = nn.L1Loss()
         evaluator = torchmetrics.MeanAbsoluteError()
-        args.mode = "min"
         init_encoder = NodeEncoder(21, args.emb_channels)
         edge_encoder = EdgeEncoder(4, args.emb_channels)
 
         modelmodule = PlGNNTestonValModule(
-            loss_criterion=loss_criterion,
-            evaluator=evaluator,
-            args=args,
-            init_encoder=init_encoder,
-            edge_encoder=edge_encoder
+            loss_criterion=loss_criterion, evaluator=evaluator,
+            args=args, init_encoder=init_encoder, edge_encoder=edge_encoder
         )
-        trainer = Trainer(accelerator="auto",
-                          devices="auto",
-                          max_epochs=args.num_epochs,
-                          enable_checkpointing=True,
-                          enable_progress_bar=True,
-                          logger=logger,
-                          callbacks=[TQDMProgressBar(refresh_rate=20),
-                                     ModelCheckpoint(monitor="val/metric", mode=args.mode),
-                                     LearningRateMonitor(logging_interval="epoch"), timer])
+
+        trainer = Trainer(
+            accelerator="auto",
+            devices="auto",
+            max_epochs=args.num_epochs,
+            enable_checkpointing=True,
+            enable_progress_bar=True,
+            logger=logger,
+            callbacks=[
+                TQDMProgressBar(refresh_rate=20),
+                ModelCheckpoint(monitor="val/metric", mode="min"),
+                LearningRateMonitor(logging_interval="epoch"),
+                timer
+            ]
+        )
 
         trainer.fit(modelmodule, datamodule=datamodule)
         val_result, test_result = trainer.test(modelmodule, datamodule=datamodule, ckpt_path="best")
