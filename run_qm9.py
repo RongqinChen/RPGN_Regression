@@ -69,7 +69,7 @@ def main():
     parser.add_argument("--dataset_name", type=str, default="QM9", help="Name of dataset.")
     parser.add_argument("--config_file", type=str, default="configs/qm9.yaml",
                         help="Additional configuration file for different dataset and models.")
-    parser.add_argument("--task", type=int, default=11, choices=list(range(19)), help="Train target. -1 for all first 12 targets.")
+    parser.add_argument("--task", type=int, default=-1, choices=list(range(19)), help="Train target. -1 for all first 12 targets.")
 
     args = parser.parse_args()
     args = utils.update_args(args)
