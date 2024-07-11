@@ -1,14 +1,13 @@
 """
 script to train on ZINC task.
 """
+import os
 import time
-
 import torch
 import torchmetrics
 import wandb
 from lightning.pytorch import Trainer, seed_everything
-# from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
-from lightning.pytorch.callbacks import LearningRateMonitor, Timer
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, Timer
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from lightning.pytorch.loggers import WandbLogger
 from torch import Tensor, nn
@@ -19,6 +18,7 @@ from interfaces.pl_data import PlPyGDataTestonValModule
 from interfaces.pl_model import PlGNNTestonValModule
 from positional_encoding import PositionalEncodingComputation
 
+torch.set_num_threads(8)
 torch.set_float32_matmul_precision('high')
 
 
@@ -27,16 +27,16 @@ def main():
     parser.add_argument("--dataset_name", type=str, default="ZINC", help="Name of dataset.")
     parser.add_argument("--config_file", type=str, default="configs/zinc.yaml",
                         help="Additional configuration file for different dataset and models.")
-    parser.add_argument("--task_type", type=str, default="graph_regression", help="Task type.")
-    parser.add_argument("--num_task", type=int, default=1, help="The number of tasks.")
-    parser.add_argument("--runs", type=int, default=10, help="Number of repeat run.")
-    parser.add_argument("--full", action="store_true", default=True, help="If true, run ZINC full.")
+    # parser.add_argument("--task_type", type=str, default="graph_regression", help="Task type.")
+    # parser.add_argument("--num_task", type=int, default=1, help="The number of tasks.")
+    parser.add_argument("--runs", type=int, default=5, help="Number of repeat run.")
+    # parser.add_argument("--full", action="store_true", help="If true, run ZINC full.")
     args = parser.parse_args()
 
     args = utils.update_args(args)
     args.full = True
     if args.full:
-        args.exp_name = "full_" + args.exp_name
+        args.project_name = "Full" + args.project_name
 
     path = "data/ZINC"
     train_dataset = ZINC(path, not args.full, "train")
@@ -50,13 +50,13 @@ def main():
     train_dataset._data_list = [pe_computation(data) for data in train_dataset]
     val_dataset._data_list = [pe_computation(data) for data in val_dataset]
     test_dataset._data_list = [pe_computation(data) for data in test_dataset]
+    pe_elapsed = time.perf_counter() - time_start
+    pe_elapsed = time.strftime("%H:%M:%S", time.gmtime(pe_elapsed)) + f"{pe_elapsed:.2f}"[-3:]
+    print(f"Took {pe_elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
 
-    elapsed = time.perf_counter() - time_start
-    elapsed = time.strftime("%H:%M:%S", time.gmtime(elapsed)) + f"{elapsed:.2f}"[-3:]
-    print("running time", f"Took {elapsed} to compute positional encoding ({args.pe_method}, {args.pe_power}).")
-
+    MACHINE = os.environ.get("MACHINE", "") + "_"
     for i in range(1, args.runs + 1):
-        logger = WandbLogger(name=f"run_{str(i)}", project=args.project_name, save_dir=args.save_dir, offline=args.offline)
+        logger = WandbLogger(f"run_{str(i)}", args.save_dir, offline=args.offline, project=MACHINE + args.project_name)
         logger.log_hyperparams(args)
         timer = Timer(duration=dict(weeks=4))
 
@@ -73,26 +73,28 @@ def main():
         )
         loss_criterion = nn.L1Loss()
         evaluator = torchmetrics.MeanAbsoluteError()
-        args.mode = "min"
         init_encoder = NodeEncoder(28, args.emb_channels)
         edge_encoder = EdgeEncoder(4, args.emb_channels)
 
         modelmodule = PlGNNTestonValModule(
-            loss_criterion=loss_criterion,
-            evaluator=evaluator,
-            args=args,
-            init_encoder=init_encoder,
-            edge_encoder=edge_encoder
+            loss_criterion=loss_criterion, evaluator=evaluator,
+            args=args, init_encoder=init_encoder, edge_encoder=edge_encoder
         )
-        trainer = Trainer(accelerator="auto",
-                          devices="auto",
-                          max_epochs=args.num_epochs,
-                          enable_checkpointing=False,
-                          enable_progress_bar=True,
-                          logger=logger,
-                          callbacks=[TQDMProgressBar(refresh_rate=20),
-                                     #  ModelCheckpoint(monitor="val/metric", mode=args.mode),
-                                     LearningRateMonitor(logging_interval="epoch"), timer])
+
+        trainer = Trainer(
+            accelerator="auto",
+            devices="auto",
+            max_epochs=args.num_epochs,
+            enable_checkpointing=True,
+            enable_progress_bar=True,
+            logger=logger,
+            callbacks=[
+                TQDMProgressBar(refresh_rate=20),
+                ModelCheckpoint(monitor="val/metric", mode="min"),
+                LearningRateMonitor(logging_interval="epoch"),
+                timer
+            ]
+        )
 
         trainer.fit(modelmodule, datamodule=datamodule)
         val_result, test_result = trainer.test(modelmodule, datamodule=datamodule, ckpt_path="best")
@@ -101,6 +103,8 @@ def main():
             "final/best_test_metric": test_result["test/metric"],
             "final/avg_train_time_epoch": timer.time_elapsed("train") / args.num_epochs,
         }
+        print("Positional encoding:", f"({args.pe_method}, {args.pe_power})")
+        print("PE computation time:", pe_elapsed)
         print("torch.cuda.max_memory_reserved: %fGB" % (torch.cuda.max_memory_reserved() / 1024 / 1024 / 1024))
         logger.log_metrics(results)
         wandb.finish()

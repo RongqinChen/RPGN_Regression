@@ -36,7 +36,7 @@ def main():
     args = utils.update_args(args)
     args.full = False
     if args.full:
-        args.exp_name = "full_" + args.exp_name
+        args.project_name = "full_" + args.project_name
 
     path = "data/ZINC"
     train_dataset = ZINC(path, not args.full, "train")

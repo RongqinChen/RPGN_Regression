@@ -107,15 +107,16 @@ class Fill2SameDataLoader(torch.utils.data.DataLoader):
     ):
         # Remove for PyTorch Lightning:
         kwargs.pop("collate_fn", None)
+        kwargs.pop("shuffle", None)
 
         # Save for PyTorch Lightning < 1.6:
         self.follow_batch = follow_batch
         self.exclude_keys = exclude_keys
 
         super().__init__(
-            dataset,
-            batch_size,
-            shuffle,
+            dataset=dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=Collater(dataset, max_num_nodes, follow_batch, exclude_keys),
             drop_last=drop_last,
